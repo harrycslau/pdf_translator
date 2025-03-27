@@ -2,14 +2,53 @@ from pdf2docx import Converter
 from docx import Document
 from docx2pdf import convert
 import requests
-import time
+import sys
 
 # 1. Convert PDF to DOCX
 def convert_pdf_to_docx(pdf_path, docx_path):
     print("Converting PDF to DOCX...")
-    cv = Converter(pdf_path)
-    cv.convert(docx_path)
-    cv.close()
+    try:
+        # First attempt - with strict image handling disabled
+        cv = Converter(pdf_path)
+        cv.convert(docx_path, start=0, end=None, pages=None, 
+                  ignore_images=True)
+        cv.close()
+        print("PDF converted (without images)")
+    except Exception as e:
+        print(f"Standard conversion failed: {str(e)}")
+        
+        try:
+            # Second attempt - try a more drastic approach with PyMuPDF directly
+            import fitz  # PyMuPDF
+            import io
+            from docx import Document
+            
+            print("Attempting text-only extraction...")
+            doc = Document()
+            pdf = fitz.open(pdf_path)
+            
+            for page_num in range(len(pdf)):
+                page = pdf[page_num]
+                text = page.get_text()
+                
+                # Skip empty pages
+                if text.strip():
+                    # Add page number as heading
+                    doc.add_heading(f"Page {page_num + 1}", level=1)
+                    
+                    # Split text by newlines and add as paragraphs
+                    for line in text.split('\n'):
+                        if line.strip():
+                            doc.add_paragraph(line)
+            
+            # Save the document
+            doc.save(docx_path)
+            pdf.close()
+            print("Text-only extraction successful")
+            
+        except Exception as e2:
+            print(f"All conversion attempts failed: {str(e2)}")
+            raise RuntimeError("Could not convert PDF to DOCX. The PDF may have unsupported features.")
 
 # 2. Translate text using Ollama
 def translate_text_ollama(text, model="mistral"):
@@ -103,6 +142,14 @@ def main():
     # Source path and model name (check carefully)
     pdf_file = "raw/document.pdf"
     model = "gemma3:4b"
+    
+    # Check if filename was provided as command-line argument
+    if len(sys.argv) > 1:
+        pdf_file = sys.argv[1]
+        print(f"Using provided PDF file: {pdf_file}")
+    else:
+        print(f"Using default PDF file: {pdf_file}")
+        
     # Other paths
     docx_file = "raw/temp.docx"
     translated_docx = "raw/translated.docx"
